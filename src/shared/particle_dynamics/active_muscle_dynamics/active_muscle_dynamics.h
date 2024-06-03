@@ -33,13 +33,12 @@
 #include "base_kernel.h"
 #include "elastic_solid.h"
 #include "solid_body.h"
-#include "solid_particles.h"
 
 namespace SPH
 {
 namespace active_muscle_dynamics
 {
-typedef DataDelegateSimple<ElasticSolidParticles> ElasticSolidDataSimple;
+typedef DataDelegateSimple<BaseParticles> ElasticSolidDataSimple;
 
 /**
  * @class MuscleActivation

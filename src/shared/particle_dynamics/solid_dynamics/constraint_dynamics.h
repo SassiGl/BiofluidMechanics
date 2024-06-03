@@ -37,7 +37,6 @@
 #include "general_constraint.h"
 #include "general_reduce.h"
 #include "solid_body.h"
-#include "solid_particles.h"
 
 namespace SPH
 {
@@ -46,8 +45,8 @@ namespace solid_dynamics
 //----------------------------------------------------------------------
 //		for general solid dynamics
 //----------------------------------------------------------------------
-typedef DataDelegateSimple<SolidParticles> SolidDataSimple;
-typedef DataDelegateInner<SolidParticles> SolidDataInner;
+typedef DataDelegateSimple<BaseParticles> SolidDataSimple;
+typedef DataDelegateInner<BaseParticles> SolidDataInner;
 
 /**@class SpringConstrain
  * @brief Constrain with a spring for each constrained particles to its original position.
@@ -157,8 +156,7 @@ class ConstrainSolidBodyMassCenter : public MotionConstraint<SPHBody>
     Real total_mass_;
     Matd correction_matrix_;
     Vecd velocity_correction_;
-    StdLargeVec<Vecd> &vel_;
-    ReduceDynamics<QuantityMoment<Vecd>> compute_total_momentum_;
+    ReduceDynamics<QuantityMoment<Vecd, SPHBody>> compute_total_momentum_;
 
   protected:
     virtual void setupDynamics(Real dt = 0.0) override
@@ -169,13 +167,12 @@ class ConstrainSolidBodyMassCenter : public MotionConstraint<SPHBody>
 
   public:
     explicit ConstrainSolidBodyMassCenter(SPHBody &sph_body, Vecd constrain_direction = Vecd::Ones())
-        : MotionConstraint<SPHBody>(sph_body),
-          correction_matrix_(Matd::Identity()), vel_(this->particles_->vel_),
+        : MotionConstraint<SPHBody>(sph_body), correction_matrix_(Matd::Identity()),
           compute_total_momentum_(sph_body, "Velocity")
     {
         for (int i = 0; i != Dimensions; ++i)
             correction_matrix_(i, i) = constrain_direction[i];
-        ReduceDynamics<QuantitySummation<Real>> compute_total_mass_(sph_body, "Mass");
+        ReduceDynamics<QuantitySummation<Real, SPHBody>> compute_total_mass_(sph_body, "Mass");
         total_mass_ = compute_total_mass_.exec();
     }
     virtual ~ConstrainSolidBodyMassCenter(){};
@@ -200,8 +197,9 @@ class ConstraintBySimBody : public MotionConstraint<DynamicsIdentifier>
                         SimTK::RungeKuttaMersonIntegrator &integ)
         : MotionConstraint<DynamicsIdentifier>(identifier),
           MBsystem_(MBsystem), mobod_(mobod), integ_(integ),
-          n_(*this->particles_->template getVariableByName<Vecd>("NormalDirection")),   
-          n0_(*this->particles_->template getVariableByName<Vecd>("InitialNormalDirection"))   
+          n_(*this->particles_->template getVariableByName<Vecd>("NormalDirection")),
+          n0_(*this->particles_->template registerSharedVariableFrom<Vecd>("InitialNormalDirection", "NormalDirection")),
+          acc_(*this->particles_->template registerSharedVariable<Vecd>("Acceleration"))
     {
         simbody_state_ = &integ_.getState();
         MBsystem_.realize(*simbody_state_, SimTK::Stage::Acceleration);
@@ -224,10 +222,11 @@ class ConstraintBySimBody : public MotionConstraint<DynamicsIdentifier>
          * const SimTK::Rotation&  R_GB = mobod_.getBodyRotation(simbody_state);
          * const SimTKVec3&      p_GB = mobod_.getBodyOriginLocation(simbody_state);
          * const SimTKVec3 r = R_GB * rr; // re-express station vector p_BS in G (15 flops)
-         * base_particle_data_i.pos_ = (p_GB + r);
+         * base_particle_data_i.pos_  = (p_GB + r);
          */
         this->pos_[index_i] = degradeToVecd(SimTKToEigen(pos));
         this->vel_[index_i] = degradeToVecd(SimTKToEigen(vel));
+        acc_[index_i] = degradeToVecd(SimTKToEigen(acc));
 
         SimTKVec3 n = (mobod_.getBodyRotation(*simbody_state_) * EigenToSimTK(upgradeToVec3d(n0_[index_i])));
         n_[index_i] = degradeToVecd(SimTKToEigen(n));
@@ -237,7 +236,7 @@ class ConstraintBySimBody : public MotionConstraint<DynamicsIdentifier>
     SimTK::MultibodySystem &MBsystem_;
     SimTK::MobilizedBody &mobod_;
     SimTK::RungeKuttaMersonIntegrator &integ_;
-    StdLargeVec<Vecd> &n_, &n0_;
+    StdLargeVec<Vecd> &n_, &n0_, &acc_;
     const SimTK::State *simbody_state_;
     SimTKVec3 initial_mobod_origin_location_;
 };
@@ -255,7 +254,6 @@ class TotalForceForSimBody
       public SolidDataSimple
 {
   protected:
-    StdLargeVec<Real> &mass_;
     StdLargeVec<Vecd> &force_, &force_prior_, &pos_;
     SimTK::MultibodySystem &MBsystem_;
     SimTK::MobilizedBody &mobod_;
@@ -268,9 +266,10 @@ class TotalForceForSimBody
                          SimTK::MobilizedBody &mobod,
                          SimTK::RungeKuttaMersonIntegrator &integ)
         : BaseLocalDynamicsReduce<ReduceSum<SimTK::SpatialVec>, DynamicsIdentifier>(identifier),
-          SolidDataSimple(identifier.getSPHBody()), mass_(particles_->mass_),
-          force_(particles_->force_), force_prior_(particles_->force_prior_),
-          pos_(particles_->pos_),
+          SolidDataSimple(identifier.getSPHBody()),
+          force_(*particles_->registerSharedVariable<Vecd>("Force")),
+          force_prior_(*particles_->getVariableByName<Vecd>("ForcePrior")),
+          pos_(*particles_->getVariableByName<Vecd>("Position")),
           MBsystem_(MBsystem), mobod_(mobod), integ_(integ)
     {
         this->quantity_name_ = "TotalForceForSimBody";

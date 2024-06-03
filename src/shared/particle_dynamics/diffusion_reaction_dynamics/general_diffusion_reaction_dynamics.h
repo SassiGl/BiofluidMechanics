@@ -31,7 +31,6 @@
 
 #include "all_particle_dynamics.h"
 #include "diffusion_reaction.h"
-#include "diffusion_reaction_particles.h"
 
 namespace SPH
 {
@@ -64,28 +63,6 @@ class DiffusionReactionInitialCondition
 };
 
 /**
- * @class DiffusionReactionSpeciesConstraint
- * @brief set boundary condition for diffusion problem
- */
-template <class DynamicsIdentifier, class ParticlesType>
-class DiffusionReactionSpeciesConstraint
-    : public BaseLocalDynamics<DynamicsIdentifier>,
-      public DiffusionReactionSimpleData<ParticlesType>
-{
-  public:
-    DiffusionReactionSpeciesConstraint(DynamicsIdentifier &identifier, const std::string &species_name)
-        : BaseLocalDynamics<DynamicsIdentifier>(identifier),
-          DiffusionReactionSimpleData<ParticlesType>(identifier.getSPHBody()),
-          phi_(this->particles_->diffusion_reaction_material_.AllSpeciesIndexMap()[species_name]),
-          species_(this->particles_->all_species_[phi_]){};
-    virtual ~DiffusionReactionSpeciesConstraint(){};
-
-  protected:
-    size_t phi_;
-    StdLargeVec<Real> &species_;
-};
-
-/**
  * @class DiffusionBasedMapping
  * @brief Mapping inside of body according to diffusion.
  * This is a abstract class to be override for case specific implementation
@@ -99,7 +76,8 @@ class DiffusionBasedMapping
     explicit DiffusionBasedMapping(SPHBody &sph_body)
         : LocalDynamics(sph_body),
           DiffusionReactionSimpleData<ParticlesType>(sph_body),
-          pos_(this->particles_->pos_), all_species_(this->particles_->all_species_){};
+          pos_(*this->particles_->template getVariableByName<Vecd>("Position")),
+          all_species_(this->particles_->all_species_){};
     virtual ~DiffusionBasedMapping(){};
 
   protected:
@@ -107,34 +85,5 @@ class DiffusionBasedMapping
     StdVec<StdLargeVec<Real>> &all_species_;
 };
 
-/**
- * @class   SpeciesSummation
- * @brief   Computing the total averaged parameter on the whole diffusion body.
- */
-template <class DynamicsIdentifier, class ParticlesType>
-class SpeciesSummation
-    : public BaseLocalDynamicsReduce<ReduceSum<Real>, DynamicsIdentifier>,
-      public DiffusionReactionSimpleData<ParticlesType>
-{
-  protected:
-    StdVec<StdLargeVec<Real>> &all_species_;
-    size_t phi_;
-
-  public:
-    SpeciesSummation(DynamicsIdentifier &identifier, const std::string &species_name)
-        : BaseLocalDynamicsReduce<ReduceSum<Real>, DynamicsIdentifier>(identifier),
-          DiffusionReactionSimpleData<ParticlesType>(identifier.getSPHBody()),
-          all_species_(this->particles_->all_species_),
-          phi_(this->particles_->diffusion_reaction_material_.AllSpeciesIndexMap()[species_name])
-    {
-        this->quantity_name_ = "DiffusionReactionSpeciesAverage";
-    };
-    virtual ~SpeciesSummation(){};
-
-    Real reduce(size_t index_i, Real dt = 0.0)
-    {
-        return all_species_[phi_][index_i];
-    };
-};
 } // namespace SPH
 #endif // GENERAL_DIFFUSION_REACTION_DYNAMICS_H

@@ -32,7 +32,6 @@
 #include "all_body_relations.h"
 #include "all_particle_dynamics.h"
 #include "base_particles.hpp"
-#include "solid_particles.h"
 
 namespace SPH
 {
@@ -48,8 +47,8 @@ namespace fluid_dynamics
 typedef DataDelegateSimple<BaseParticles> FluidDataSimple;
 typedef DataDelegateInner<BaseParticles> FluidDataInner;
 typedef DataDelegateContact<BaseParticles, BaseParticles> FluidContactData;
-typedef DataDelegateContact<BaseParticles, SolidParticles, DataDelegateEmptyBase> FluidWallData;
-typedef DataDelegateContact<BaseParticles, SolidParticles> FSIContactData;
+typedef DataDelegateContact<BaseParticles, BaseParticles, DataDelegateEmptyBase> FluidWallData;
+typedef DataDelegateContact<BaseParticles, BaseParticles> FSIContactData;
 /**
  * @class InteractionWithWall
  * @brief Base class adding interaction with wall to general relaxation process
@@ -64,18 +63,18 @@ class InteractionWithWall : public BaseInteractionType<FSIContactData>
     {
         for (size_t k = 0; k != this->contact_particles_.size(); ++k)
         {
-            wall_vel_ave_.push_back(this->contact_particles_[k]->AverageVelocity());
-            wall_force_ave_.push_back(this->contact_particles_[k]->AverageForce());
-            wall_n_.push_back(&(this->contact_particles_[k]->n_));
-            wall_mass_.push_back(&(this->contact_particles_[k]->mass_));
-            wall_Vol_.push_back(&(this->contact_particles_[k]->Vol_));
+            Solid &solid_material = DynamicCast<Solid>(this, this->contact_particles_[k]->getBaseMaterial());
+            wall_vel_ave_.push_back(solid_material.AverageVelocity(this->contact_particles_[k]));
+            wall_acc_ave_.push_back(solid_material.AverageAcceleration(this->contact_particles_[k]));
+            wall_n_.push_back(this->contact_particles_[k]->template getVariableByName<Vecd>("NormalDirection"));
+            wall_Vol_.push_back(this->contact_particles_[k]->template getVariableByName<Real>("VolumetricMeasure"));
         }
     };
     virtual ~InteractionWithWall(){};
 
   protected:
-    StdVec<StdLargeVec<Vecd> *> wall_vel_ave_, wall_force_ave_, wall_n_;
-    StdVec<StdLargeVec<Real> *> wall_mass_, wall_Vol_;
+    StdVec<StdLargeVec<Vecd> *> wall_vel_ave_, wall_acc_ave_, wall_n_;
+    StdVec<StdLargeVec<Real> *> wall_Vol_;
 };
 
 } // namespace fluid_dynamics
